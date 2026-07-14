@@ -268,7 +268,7 @@ func (m model) handleAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.addProfile.User = val
 				m.addStep = 2
 				m.addInput.SetValue("")
-				m.addInput.Placeholder = "e.g. 192.168.1.100 or server.example.com"
+				m.addInput.Placeholder = "e.g. server.example.com"
 			case 2:
 				if val == "" {
 					m.err = "Host cannot be empty"
@@ -730,7 +730,7 @@ func (m model) detailsView() string {
 	return b.String()
 }
 
-func connectSSH(p Profile) error {
+func connectSSH(p Profile) error { //creates a new process to run the ssh command in a new terminal window
 	args := []string{"/c", "start", "SSH: " + p.Name, "ssh"}
 	if p.Port > 0 && p.Port != 22 {
 		args = append(args, "-p", strconv.Itoa(p.Port))

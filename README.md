@@ -41,7 +41,7 @@ Profiles are stored in `profiles.json` next to the executable. On connect, SSHel
 {
   "name": "Production",
   "user": "root",
-  "host": "192.168.1.100",
+  "host": "server.example.com",
   "port": 2222,
   "key_path": "~/.ssh/id_rsa"
 }
