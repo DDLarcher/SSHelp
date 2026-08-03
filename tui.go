@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os/exec"
 	"strconv"
 	"strings"
 
@@ -88,30 +87,30 @@ var (
 )
 
 type model struct {
-	state              state
-	profiles           []Profile
-	cursor             int
-	width, height      int
-	err, msg           string
-	actionCursor       int
+	state         state
+	profiles      []Profile
+	cursor        int
+	width, height int
+	err, msg      string
+	actionCursor  int
 
-	password           string
-	isFirstRun         bool
-	unlockInput        textinput.Model
+	password    string
+	isFirstRun  bool
+	unlockInput textinput.Model
 
-	addStep            int
-	addInput           textinput.Model
-	addProfile         Profile
+	addStep    int
+	addInput   textinput.Model
+	addProfile Profile
 
-	editField          int
-	editInput          textinput.Model
-	editProfile        Profile
-	editIndex          int
+	editField   int
+	editInput   textinput.Model
+	editProfile Profile
+	editIndex   int
 
-	confirmMsg         string
-	confirmDelete      bool
+	confirmMsg    string
+	confirmDelete bool
 
-	detailProfile      Profile
+	detailProfile Profile
 }
 
 func initialModel() model {
@@ -165,6 +164,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 			return m.handleClick(msg)
 		}
+
+	case sshFinishedMsg:
+		if msg.err != nil {
+			m.err = "Connection error: " + msg.err.Error()
+			m.msg = ""
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -263,12 +269,9 @@ func (m model) handleActionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		p = p.UpdatedNow()
 		m.profiles[m.cursor] = p
 		SaveProfiles(m.profiles, m.password)
-		if err := connectSSH(p); err != nil {
-			m.err = "Connection error: " + err.Error()
-		} else {
-			m.msg = "Connecting to " + p.Name + "..."
-		}
+		m.msg = "Connecting to " + p.Name + "..."
 		m.state = stateList
+		return m, connectSSHCmd(p)
 	case "e":
 		m.state = stateEdit
 		m.editField = 0
@@ -858,20 +861,4 @@ func (m model) detailsView() string {
 	b.WriteString(dialogStyle.Width(maxW).Render(content))
 
 	return b.String()
-}
-
-func connectSSH(p Profile) error {
-	safeName := sanitizeForShell(p.Name)
-	if safeName == "" {
-		safeName = "SSH"
-	}
-	args := []string{"/c", "start", "SSH: " + safeName, "ssh"}
-	if p.Port > 0 && p.Port != 22 {
-		args = append(args, "-p", strconv.Itoa(p.Port))
-	}
-	if p.KeyPath != "" {
-		args = append(args, "-i", p.KeyPath)
-	}
-	args = append(args, p.User+"@"+p.Host)
-	return exec.Command("cmd", args...).Start()
 }
