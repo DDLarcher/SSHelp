@@ -28,7 +28,14 @@ const (
 	fieldHost
 	fieldPort
 	fieldKeyPath
+	fieldPassword
 )
+
+// Placeholder shown in place of a stored password; the value itself is never
+// rendered.
+const passwordMask = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
+
+const pwErr = "Invalid password (max 256 printable characters)"
 
 const charErr = "Invalid characters. Allowed: a-z, A-Z, 0-9, . - _ @ :"
 
@@ -83,6 +90,7 @@ var (
 		"Host",
 		"Port",
 		"Key Path (optional)",
+		"Password (optional)",
 	}
 )
 
@@ -308,7 +316,7 @@ func (m model) handleActionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.addStep <= 4 {
+	if m.addStep <= 5 {
 		switch msg.String() {
 		case "esc":
 			m.state = stateList
@@ -375,6 +383,18 @@ func (m model) handleAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				m.addProfile.KeyPath = val
 				m.addStep = 5
+				m.addInput.SetValue("")
+				m.addInput.Placeholder = "leave empty to be asked on connect"
+				m.addInput.EchoMode = textinput.EchoPassword
+				m.addInput.EchoCharacter = '*'
+				m.addInput.CharLimit = maxPasswordLen
+			case 5:
+				if !isValidPassword(val) {
+					m.err = pwErr
+					return m, nil
+				}
+				m.addProfile.Password = val
+				m.addStep = 6
 				m.addInput.Blur()
 				return m, nil
 			}
@@ -419,7 +439,7 @@ func (m model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.editField--
 		}
 	case "down", "j":
-		if m.editField < fieldKeyPath {
+		if m.editField < fieldPassword {
 			m.editField++
 		}
 	case "enter":
@@ -440,6 +460,11 @@ func (m model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.editInput.SetValue(strconv.Itoa(m.editProfile.Port))
 		case fieldKeyPath:
 			m.editInput.SetValue(m.editProfile.KeyPath)
+		case fieldPassword:
+			m.editInput.EchoMode = textinput.EchoPassword
+			m.editInput.EchoCharacter = '*'
+			m.editInput.CharLimit = maxPasswordLen
+			m.editInput.SetValue(m.editProfile.Password)
 		}
 		return m, textinput.Blink
 	case "ctrl+s":
@@ -518,6 +543,12 @@ func (m model) handleEditFieldKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.editProfile.KeyPath = val
+		case fieldPassword:
+			if !isValidPassword(val) {
+				m.err = pwErr
+				return m, nil
+			}
+			m.editProfile.Password = val
 		}
 		m.err = ""
 		m.state = stateEdit
@@ -707,8 +738,8 @@ func (m model) addView() string {
 		maxW = 44
 	}
 
-	if m.addStep <= 4 {
-		label := "Step " + strconv.Itoa(m.addStep+1) + "/5: " + stepLabels[m.addStep]
+	if m.addStep <= 5 {
+		label := "Step " + strconv.Itoa(m.addStep+1) + "/6: " + stepLabels[m.addStep]
 		content := headingStyle.Render(label) + "\n\n"
 		content += m.addInput.View() + "\n\n"
 		content += dimStyle.Render("[Enter] Next  [Esc] Cancel")
@@ -724,6 +755,7 @@ func (m model) addView() string {
 		content += "  " + fieldLabel.Render("Host:") + "  " + m.addProfile.Host + "\n"
 		content += "  " + fieldLabel.Render("Port:") + "  " + strconv.Itoa(m.addProfile.Port) + "\n"
 		content += "  " + fieldLabel.Render("Key:") + "  " + keyVal + "\n"
+		content += "  " + fieldLabel.Render("Password:") + "  " + passwordSummary(m.addProfile) + "\n"
 		content += "\n" + dimStyle.Render("[Enter] Save  [Esc] Cancel")
 		b.WriteString(dialogStyle.Width(maxW).Render(content))
 	}
@@ -744,12 +776,18 @@ func (m model) editView() string {
 	b.WriteString(headingStyle.Render("Edit Profile"))
 	b.WriteString("\n\n")
 
-	fields := [5][2]string{
+	pwField := ""
+	if m.editProfile.Password != "" {
+		pwField = passwordMask
+	}
+
+	fields := [6][2]string{
 		{"Name:", m.editProfile.Name},
 		{"User:", m.editProfile.User},
 		{"Host:", m.editProfile.Host},
 		{"Port:", strconv.Itoa(m.editProfile.Port)},
 		{"Key:", m.editProfile.KeyPath},
+		{"Password:", pwField},
 	}
 
 	maxW := m.width - 8
@@ -799,6 +837,14 @@ func (m model) editView() string {
 	}
 
 	return b.String()
+}
+
+// Never reveals the password itself, only whether one is stored.
+func passwordSummary(p Profile) string {
+	if p.Password == "" {
+		return dimStyle.Render("(none)")
+	}
+	return passwordMask + dimStyle.Render("  (auto-filled on connect)")
 }
 
 func (m model) confirmView() string {
@@ -854,6 +900,7 @@ func (m model) detailsView() string {
 	content += "  " + fieldLabel.Render("Host:") + "  " + p.Host + "\n"
 	content += "  " + fieldLabel.Render("Port:") + "  " + strconv.Itoa(p.Port) + "\n"
 	content += "  " + fieldLabel.Render("Key:") + "  " + keyVal + "\n"
+	content += "  " + fieldLabel.Render("Password:") + "  " + passwordSummary(p) + "\n"
 	content += "  " + fieldLabel.Render("Connect:") + "  " + p.HostInfo() + "\n"
 	content += "  " + fieldLabel.Render("Last access:") + "  " + last + "\n"
 	content += "\n" + dimStyle.Render("[Any key] Back")

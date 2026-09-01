@@ -16,6 +16,8 @@ func connectSSHCmd(p Profile) tea.Cmd {
 			safeName = "SSH"
 		}
 		args := append([]string{"/c", "start", "SSH: " + safeName, "ssh"}, sshArgs(p)...)
-		return sshFinishedMsg{exec.Command("cmd", args...).Start()}
+		c := exec.Command("cmd", args...)
+		c.Env = sshEnv(p)
+		return sshFinishedMsg{c.Start()}
 	}
 }

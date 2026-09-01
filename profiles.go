@@ -15,13 +15,30 @@ type Profile struct {
 	Host       string `json:"host"`
 	Port       int    `json:"port"`
 	KeyPath    string `json:"key_path,omitempty"`
+	Password   string `json:"password,omitempty"`
 	LastAccess string `json:"last_access,omitempty"`
 }
+
+const maxPasswordLen = 256
 
 var validInputRE = regexp.MustCompile(`^[a-zA-Z0-9._@:-]+$`)
 
 func isValidInput(s string) bool {
 	return s != "" && validInputRE.MatchString(s)
+}
+
+// Passwords are handed to ssh through the environment, never through a shell,
+// so any printable character is fine; control characters are not.
+func isValidPassword(s string) bool {
+	if len(s) > maxPasswordLen {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x20 || s[i] == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 type ProfileError struct{ msg string }
@@ -43,6 +60,9 @@ func ValidateProfile(p Profile) error {
 	}
 	if p.KeyPath != "" && !isValidInput(p.KeyPath) {
 		return &ProfileError{"invalid key path characters"}
+	}
+	if !isValidPassword(p.Password) {
+		return &ProfileError{"invalid password (max 256 printable characters)"}
 	}
 	return nil
 }
@@ -83,6 +103,9 @@ func (p Profile) HostInfo() string {
 	info := p.User + "@" + p.Host + ":" + strconv.Itoa(p.Port)
 	if p.KeyPath != "" {
 		info += " (key)"
+	}
+	if p.Password != "" {
+		info += " (pwd)"
 	}
 	return info
 }
