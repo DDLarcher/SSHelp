@@ -24,11 +24,23 @@ const (
 
 const (
 	fieldName = iota
+	fieldGroup
 	fieldUser
 	fieldHost
 	fieldPort
 	fieldKeyPath
 	fieldPassword
+
+	stepCount = fieldPassword + 1
+)
+
+// Geometry of listView, mirrored by profileRows so mouse clicks land on the
+// right card.
+const (
+	listTop       = 7 // first row below the banner and its blank line
+	cardHeight    = 4
+	actionsHeight = 3
+	headerHeight  = 1
 )
 
 // Placeholder shown in place of a stored password; the value itself is never
@@ -86,6 +98,7 @@ var (
 
 	stepLabels = []string{
 		"Profile Name",
+		"Collection (optional)",
 		"Username",
 		"Host",
 		"Port",
@@ -316,7 +329,7 @@ func (m model) handleActionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.addStep <= 5 {
+	if m.addStep < stepCount {
 		switch msg.String() {
 		case "esc":
 			m.state = stateList
@@ -324,7 +337,7 @@ func (m model) handleAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "enter":
 			val := m.addInput.Value()
 			switch m.addStep {
-			case 0:
+			case fieldName:
 				if val == "" {
 					m.err = "Name cannot be empty"
 					return m, nil
@@ -334,10 +347,19 @@ func (m model) handleAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.addProfile.Name = val
-				m.addStep = 1
+				m.addStep = fieldGroup
+				m.addInput.SetValue("")
+				m.addInput.Placeholder = "e.g. production (empty = ungrouped)"
+			case fieldGroup:
+				if val != "" && !isValidInput(val) {
+					m.err = charErr
+					return m, nil
+				}
+				m.addProfile.Group = val
+				m.addStep = fieldUser
 				m.addInput.SetValue("")
 				m.addInput.Placeholder = "e.g. root"
-			case 1:
+			case fieldUser:
 				if val == "" {
 					m.err = "User cannot be empty"
 					return m, nil
@@ -347,10 +369,10 @@ func (m model) handleAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.addProfile.User = val
-				m.addStep = 2
+				m.addStep = fieldHost
 				m.addInput.SetValue("")
 				m.addInput.Placeholder = "e.g. server.example.com"
-			case 2:
+			case fieldHost:
 				if val == "" {
 					m.err = "Host cannot be empty"
 					return m, nil
@@ -360,10 +382,10 @@ func (m model) handleAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.addProfile.Host = val
-				m.addStep = 3
+				m.addStep = fieldPort
 				m.addInput.SetValue("22")
 				m.addInput.Placeholder = "default: 22"
-			case 3:
+			case fieldPort:
 				if val == "" {
 					val = "22"
 				}
@@ -373,28 +395,28 @@ func (m model) handleAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.addProfile.Port = port
-				m.addStep = 4
+				m.addStep = fieldKeyPath
 				m.addInput.SetValue("")
 				m.addInput.Placeholder = "leave empty if not needed"
-			case 4:
+			case fieldKeyPath:
 				if val != "" && !isValidInput(val) {
 					m.err = charErr
 					return m, nil
 				}
 				m.addProfile.KeyPath = val
-				m.addStep = 5
+				m.addStep = fieldPassword
 				m.addInput.SetValue("")
 				m.addInput.Placeholder = "leave empty to be asked on connect"
 				m.addInput.EchoMode = textinput.EchoPassword
 				m.addInput.EchoCharacter = '*'
 				m.addInput.CharLimit = maxPasswordLen
-			case 5:
+			case fieldPassword:
 				if !isValidPassword(val) {
 					m.err = pwErr
 					return m, nil
 				}
 				m.addProfile.Password = val
-				m.addStep = 6
+				m.addStep = stepCount
 				m.addInput.Blur()
 				return m, nil
 			}
@@ -412,16 +434,14 @@ func (m model) handleAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.err = err.Error()
 			return m, nil
 		}
-		for _, p := range m.profiles {
-			if p.Name == m.addProfile.Name {
-				m.err = "A profile with this name already exists"
-				return m, nil
-			}
+		if nameTaken(m.profiles, m.addProfile, -1) {
+			m.err = "A profile with this name already exists in " + m.addProfile.GroupLabel()
+			return m, nil
 		}
 		m.profiles = append(m.profiles, m.addProfile)
 		sortProfiles(m.profiles)
 		SaveProfiles(m.profiles, m.password)
-		m.cursor = len(m.profiles) - 1
+		m.cursor = indexOf(m.profiles, m.addProfile)
 		m.msg = "Profile \"" + m.addProfile.Name + "\" added"
 		m.state = stateList
 	case "esc":
@@ -452,6 +472,8 @@ func (m model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch m.editField {
 		case fieldName:
 			m.editInput.SetValue(m.editProfile.Name)
+		case fieldGroup:
+			m.editInput.SetValue(m.editProfile.Group)
 		case fieldUser:
 			m.editInput.SetValue(m.editProfile.User)
 		case fieldHost:
@@ -472,14 +494,13 @@ func (m model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.err = err.Error()
 			return m, nil
 		}
-		for i, p := range m.profiles {
-			if i != m.editIndex && p.Name == m.editProfile.Name {
-				m.err = "A profile with this name already exists"
-				return m, nil
-			}
+		if nameTaken(m.profiles, m.editProfile, m.editIndex) {
+			m.err = "A profile with this name already exists in " + m.editProfile.GroupLabel()
+			return m, nil
 		}
 		m.profiles[m.editIndex] = m.editProfile
 		sortProfiles(m.profiles)
+		m.cursor = indexOf(m.profiles, m.editProfile)
 		SaveProfiles(m.profiles, m.password)
 		m.msg = "Profile \"" + m.editProfile.Name + "\" updated"
 		m.err = ""
@@ -507,6 +528,12 @@ func (m model) handleEditFieldKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.editProfile.Name = val
+		case fieldGroup:
+			if val != "" && !isValidInput(val) {
+				m.err = charErr
+				return m, nil
+			}
+			m.editProfile.Group = val
 		case fieldUser:
 			if val == "" {
 				m.err = "User cannot be empty"
@@ -587,13 +614,14 @@ func (m model) handleClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if m.state != stateList && m.state != stateActions {
 		return m, nil
 	}
-	y := msg.Y
-	if y < 3 || len(m.profiles) == 0 {
-		return m, nil
+	idx := -1
+	for i, top := range m.profileRows() {
+		if msg.Y >= top && msg.Y < top+cardHeight {
+			idx = i
+			break
+		}
 	}
-
-	idx := (y - 3) / 5
-	if idx >= len(m.profiles) {
+	if idx < 0 {
 		return m, nil
 	}
 
@@ -679,7 +707,17 @@ func (m model) listView() string {
 			maxW = 50
 		}
 
+		grouped := hasGroups(m.profiles)
+
 		for i, p := range m.profiles {
+			if grouped && (i == 0 || p.Group != m.profiles[i-1].Group) {
+				if i > 0 {
+					b.WriteByte('\n')
+				}
+				b.WriteString(groupHeader(p, m.profiles))
+				b.WriteByte('\n')
+			}
+
 			sel := i == m.cursor
 
 			borderCol := borderGray
@@ -722,6 +760,56 @@ func (m model) listView() string {
 	return b.String()
 }
 
+// Header line of the collection a profile opens, with the number of profiles
+// in it.
+func groupHeader(p Profile, profiles []Profile) string {
+	n := 0
+	for _, other := range profiles {
+		if other.Group == p.Group {
+			n++
+		}
+	}
+	label := "  " + p.GroupLabel() + " (" + strconv.Itoa(n) + ")"
+	if p.Group == "" {
+		return dimStyle.Render(label)
+	}
+	return headingStyle.Render(label)
+}
+
+// Row on which each profile card starts. Kept in step with listView so that
+// clicks are mapped to the profile actually drawn there.
+func (m model) profileRows() []int {
+	rows := make([]int, len(m.profiles))
+	grouped := hasGroups(m.profiles)
+	y := listTop
+
+	for i, p := range m.profiles {
+		if grouped && (i == 0 || p.Group != m.profiles[i-1].Group) {
+			if i > 0 {
+				y++
+			}
+			y += headerHeight
+		}
+		rows[i] = y
+		y += cardHeight
+		if i == m.cursor && m.state == stateActions {
+			y += actionsHeight
+		}
+	}
+	return rows
+}
+
+// Position of a profile once the list has been re-sorted; name and collection
+// identify it uniquely.
+func indexOf(profiles []Profile, p Profile) int {
+	for i, other := range profiles {
+		if other.Name == p.Name && other.Group == p.Group {
+			return i
+		}
+	}
+	return 0
+}
+
 func (m model) addView() string {
 	var b strings.Builder
 	b.Grow(512)
@@ -739,7 +827,7 @@ func (m model) addView() string {
 	}
 
 	if m.addStep <= 5 {
-		label := "Step " + strconv.Itoa(m.addStep+1) + "/6: " + stepLabels[m.addStep]
+		label := "Step " + strconv.Itoa(m.addStep+1) + "/" + strconv.Itoa(stepCount) + ": " + stepLabels[m.addStep]
 		content := headingStyle.Render(label) + "\n\n"
 		content += m.addInput.View() + "\n\n"
 		content += dimStyle.Render("[Enter] Next  [Esc] Cancel")
@@ -751,6 +839,7 @@ func (m model) addView() string {
 		}
 		content := headingStyle.Render("Review & Save") + "\n\n"
 		content += "  " + fieldLabel.Render("Name:") + "  " + m.addProfile.Name + "\n"
+		content += "  " + fieldLabel.Render("Collection:") + "  " + groupSummary(m.addProfile) + "\n"
 		content += "  " + fieldLabel.Render("User:") + "  " + m.addProfile.User + "\n"
 		content += "  " + fieldLabel.Render("Host:") + "  " + m.addProfile.Host + "\n"
 		content += "  " + fieldLabel.Render("Port:") + "  " + strconv.Itoa(m.addProfile.Port) + "\n"
@@ -781,8 +870,9 @@ func (m model) editView() string {
 		pwField = passwordMask
 	}
 
-	fields := [6][2]string{
+	fields := [stepCount][2]string{
 		{"Name:", m.editProfile.Name},
+		{"Collection:", m.editProfile.Group},
 		{"User:", m.editProfile.User},
 		{"Host:", m.editProfile.Host},
 		{"Port:", strconv.Itoa(m.editProfile.Port)},
@@ -837,6 +927,13 @@ func (m model) editView() string {
 	}
 
 	return b.String()
+}
+
+func groupSummary(p Profile) string {
+	if p.Group == "" {
+		return dimStyle.Render("(none)")
+	}
+	return p.Group
 }
 
 // Never reveals the password itself, only whether one is stored.
@@ -896,6 +993,7 @@ func (m model) detailsView() string {
 	}
 
 	content := headingStyle.Render(p.Name) + "\n\n"
+	content += "  " + fieldLabel.Render("Collection:") + "  " + groupSummary(p) + "\n"
 	content += "  " + fieldLabel.Render("User:") + "  " + p.User + "\n"
 	content += "  " + fieldLabel.Render("Host:") + "  " + p.Host + "\n"
 	content += "  " + fieldLabel.Render("Port:") + "  " + strconv.Itoa(p.Port) + "\n"

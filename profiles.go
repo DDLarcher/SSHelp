@@ -11,6 +11,7 @@ import (
 
 type Profile struct {
 	Name       string `json:"name"`
+	Group      string `json:"group,omitempty"`
 	User       string `json:"user"`
 	Host       string `json:"host"`
 	Port       int    `json:"port"`
@@ -57,6 +58,9 @@ func ValidateProfile(p Profile) error {
 	}
 	if p.Port < 1 || p.Port > 65535 {
 		return &ProfileError{"invalid port (1-65535)"}
+	}
+	if p.Group != "" && !isValidInput(p.Group) {
+		return &ProfileError{"invalid collection name"}
 	}
 	if p.KeyPath != "" && !isValidInput(p.KeyPath) {
 		return &ProfileError{"invalid key path characters"}
@@ -115,10 +119,49 @@ func (p Profile) UpdatedNow() Profile {
 	return p
 }
 
+// Collections come first in alphabetical order, ungrouped profiles last; within
+// a collection profiles are sorted by name. listView relies on profiles of the
+// same collection being contiguous.
 func sortProfiles(profiles []Profile) {
 	sort.Slice(profiles, func(i, j int) bool {
-		return profiles[i].Name < profiles[j].Name
+		a, b := profiles[i], profiles[j]
+		if a.Group != b.Group {
+			if a.Group == "" || b.Group == "" {
+				return b.Group == ""
+			}
+			return a.Group < b.Group
+		}
+		return a.Name < b.Name
 	})
+}
+
+// Profile names must be unique within their collection, so the same name may be
+// reused across collections. skip is the index of the profile being edited, or
+// -1 when adding a new one.
+func nameTaken(profiles []Profile, p Profile, skip int) bool {
+	for i, other := range profiles {
+		if i != skip && other.Name == p.Name && other.Group == p.Group {
+			return true
+		}
+	}
+	return false
+}
+
+// Label of the section a profile is listed under.
+func (p Profile) GroupLabel() string {
+	if p.Group == "" {
+		return "Ungrouped"
+	}
+	return p.Group
+}
+
+func hasGroups(profiles []Profile) bool {
+	for _, p := range profiles {
+		if p.Group != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func itoa(n int) string {

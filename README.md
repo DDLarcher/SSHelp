@@ -12,6 +12,17 @@ Terminal-based SSH profile manager with AES-256-GCM encrypted storage. Built wit
 - Command injection prevention on SSH launch
 - Saved SSH passwords are stored only inside the encrypted `profiles.json`, are never shown in the UI (only `••••••••`), and never appear on a command line
 
+## Collections
+
+A profile can belong to a named collection (`production`, `staging`, a customer
+name...). The list groups profiles under a heading per collection, with
+collections in alphabetical order first and ungrouped profiles last.
+
+A collection is created simply by typing its name in the `Collection` field of a
+profile, and disappears when its last profile leaves it. Profile names only have
+to be unique **within** a collection, so `web` can exist in both `production` and
+`staging`.
+
 ## Saved passwords
 
 A profile can store its SSH password. On connect, SSHelp hands it to OpenSSH
@@ -51,7 +62,7 @@ go build -ldflags="-s -w" -trimpath -o SSHelp.exe . # Windows
 On first launch, create a master password. On subsequent launches, enter it to unlock.
 
 Each profile card shows `(key)` when an identity file is set and `(pwd)` when a
-password is saved.
+password is saved. Profiles are listed grouped by collection.
 
 ### Key bindings
 
