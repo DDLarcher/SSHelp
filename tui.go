@@ -438,6 +438,12 @@ func (m model) handleAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.err = "A profile with this name already exists in " + m.addProfile.GroupLabel()
 			return m, nil
 		}
+		pinned, err := pinHostKeys(m.addProfile)
+		if err != nil {
+			m.err = err.Error()
+			return m, nil
+		}
+		m.addProfile = pinned
 		m.profiles = append(m.profiles, m.addProfile)
 		sortProfiles(m.profiles)
 		SaveProfiles(m.profiles, m.password)
@@ -498,6 +504,12 @@ func (m model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.err = "A profile with this name already exists in " + m.editProfile.GroupLabel()
 			return m, nil
 		}
+		pinned, err := pinHostKeys(m.editProfile)
+		if err != nil {
+			m.err = err.Error()
+			return m, nil
+		}
+		m.editProfile = pinned
 		m.profiles[m.editIndex] = m.editProfile
 		sortProfiles(m.profiles)
 		m.cursor = indexOf(m.profiles, m.editProfile)
@@ -845,6 +857,9 @@ func (m model) addView() string {
 		content += "  " + fieldLabel.Render("Port:") + "  " + strconv.Itoa(m.addProfile.Port) + "\n"
 		content += "  " + fieldLabel.Render("Key:") + "  " + keyVal + "\n"
 		content += "  " + fieldLabel.Render("Password:") + "  " + passwordSummary(m.addProfile) + "\n"
+		if m.addProfile.Password != "" {
+			content += "\n" + dimStyle.Render("  Saving requires the host key to be known already:\n  its fingerprint is pinned to the profile.") + "\n"
+		}
 		content += "\n" + dimStyle.Render("[Enter] Save  [Esc] Cancel")
 		b.WriteString(dialogStyle.Width(maxW).Render(content))
 	}
@@ -999,6 +1014,19 @@ func (m model) detailsView() string {
 	content += "  " + fieldLabel.Render("Port:") + "  " + strconv.Itoa(p.Port) + "\n"
 	content += "  " + fieldLabel.Render("Key:") + "  " + keyVal + "\n"
 	content += "  " + fieldLabel.Render("Password:") + "  " + passwordSummary(p) + "\n"
+	if p.Password != "" {
+		fps := hostKeyFingerprints(p)
+		if len(fps) == 0 {
+			content += "  " + fieldLabel.Render("Host key:") + "  " + errStyle.Render("(not pinned)") + "\n"
+		}
+		for i, fp := range fps {
+			label := "Host key:"
+			if i > 0 {
+				label = "         "
+			}
+			content += "  " + fieldLabel.Render(label) + "  " + fp + "\n"
+		}
+	}
 	content += "  " + fieldLabel.Render("Connect:") + "  " + p.HostInfo() + "\n"
 	content += "  " + fieldLabel.Render("Last access:") + "  " + last + "\n"
 	content += "\n" + dimStyle.Render("[Any key] Back")

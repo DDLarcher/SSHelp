@@ -6,18 +6,21 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type Profile struct {
-	Name       string `json:"name"`
-	Group      string `json:"group,omitempty"`
-	User       string `json:"user"`
-	Host       string `json:"host"`
-	Port       int    `json:"port"`
-	KeyPath    string `json:"key_path,omitempty"`
-	Password   string `json:"password,omitempty"`
-	LastAccess string `json:"last_access,omitempty"`
+	Name       string   `json:"name"`
+	Group      string   `json:"group,omitempty"`
+	User       string   `json:"user"`
+	Host       string   `json:"host"`
+	Port       int      `json:"port"`
+	KeyPath    string   `json:"key_path,omitempty"`
+	Password   string   `json:"password,omitempty"`
+	HostKeys   []string `json:"host_keys,omitempty"`
+	LastAccess string   `json:"last_access,omitempty"`
 }
 
 const maxPasswordLen = 256
@@ -31,11 +34,24 @@ func isValidInput(s string) bool {
 // Passwords are handed to ssh through the environment, never through a shell,
 // so any printable character is fine; control characters are not.
 func isValidPassword(s string) bool {
-	if len(s) > maxPasswordLen {
+	if utf8.RuneCountInString(s) > maxPasswordLen {
 		return false
 	}
-	for i := 0; i < len(s); i++ {
-		if s[i] < 0x20 || s[i] == 0x7f {
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+// A pinned known_hosts entry, as produced by ssh-keygen -F.
+func isValidHostKey(s string) bool {
+	if s == "" || len(s) > 2048 {
+		return false
+	}
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
 			return false
 		}
 	}
@@ -68,6 +84,11 @@ func ValidateProfile(p Profile) error {
 	if !isValidPassword(p.Password) {
 		return &ProfileError{"invalid password (max 256 printable characters)"}
 	}
+	for _, k := range p.HostKeys {
+		if !isValidHostKey(k) {
+			return &ProfileError{"invalid pinned host key"}
+		}
+	}
 	return nil
 }
 
@@ -95,12 +116,64 @@ func sanitizeForShell(s string) string {
 	return string(b)
 }
 
-func profilesPath() string {
+// Where older versions kept the store: next to the executable, which exposes
+// it whenever the binary lives in a shared, synced or removable directory.
+func legacyProfilesPath() string {
 	exe, err := os.Executable()
 	if err != nil {
-		return "profiles.json"
+		return ""
 	}
 	return filepath.Join(filepath.Dir(exe), "profiles.json")
+}
+
+// The store now belongs in the user's own configuration directory.
+func configProfilesPath() string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(dir, "sshelp", "profiles.json")
+}
+
+// Saves always go to the new location, so a store left next to the executable
+// is migrated the first time anything is written.
+func profilesWritePath() string {
+	if path := configProfilesPath(); path != "" {
+		return path
+	}
+	return legacyProfilesPath()
+}
+
+func profilesReadPath() string {
+	if path := configProfilesPath(); path != "" {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	if old := legacyProfilesPath(); old != "" {
+		if _, err := os.Stat(old); err == nil {
+			return old
+		}
+	}
+	return profilesWritePath()
+}
+
+func joinWarnings(warnings []string) string {
+	return strings.Join(warnings, "; ")
+}
+
+// Directory for the per-profile pinned known_hosts files and the one-shot
+// credential files, created private to the user.
+func stateDir() (string, error) {
+	base, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(base, "sshelp")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
 
 func (p Profile) HostInfo() string {
