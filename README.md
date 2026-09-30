@@ -113,3 +113,7 @@ password is saved. Profiles are listed grouped by collection.
 | `V` | View details |
 | `Esc` | Go back / cancel |
 | `q` | Quit |
+
+
+
+Disclaimer: Project build with the assist of AI
