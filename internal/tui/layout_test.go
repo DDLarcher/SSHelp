@@ -1,10 +1,12 @@
-package main
+package tui
 
 import (
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/DDLarcher/SSHelp/internal/profile"
 )
 
 func layoutModel(st state, cursor int) model {
@@ -12,14 +14,14 @@ func layoutModel(st state, cursor int) model {
 		state:  st,
 		width:  70,
 		cursor: cursor,
-		profiles: []Profile{
+		profiles: []profile.Profile{
 			{Name: "db", Group: "production", User: "root", Host: "db.example.com", Port: 22},
 			{Name: "web", Group: "production", User: "root", Host: "web.example.com", Port: 2222},
 			{Name: "web", Group: "staging", User: "deploy", Host: "stg.example.com", Port: 22},
 			{Name: "laptop", User: "me", Host: "192.168.1.10", Port: 22},
 		},
 	}
-	sortProfiles(m.profiles)
+	profile.Sort(m.profiles)
 	return m
 }
 
@@ -72,13 +74,13 @@ func TestSortGroupsCollectionsFirst(t *testing.T) {
 
 func TestNameTakenIsPerCollection(t *testing.T) {
 	m := layoutModel(stateList, 0)
-	if !nameTaken(m.profiles, Profile{Name: "web", Group: "production"}, -1) {
+	if !profile.NameTaken(m.profiles, profile.Profile{Name: "web", Group: "production"}, -1) {
 		t.Error("duplicate name within a collection not detected")
 	}
-	if nameTaken(m.profiles, Profile{Name: "web", Group: "dev"}, -1) {
+	if profile.NameTaken(m.profiles, profile.Profile{Name: "web", Group: "dev"}, -1) {
 		t.Error("same name in a different collection must be allowed")
 	}
-	if nameTaken(m.profiles, Profile{Name: "web", Group: "production"}, 1) {
+	if profile.NameTaken(m.profiles, profile.Profile{Name: "web", Group: "production"}, 1) {
 		t.Error("the profile being edited must not clash with itself")
 	}
 }

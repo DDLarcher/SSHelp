@@ -1,4 +1,4 @@
-package main
+package tui
 
 import (
 	"strconv"
@@ -7,6 +7,9 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/DDLarcher/SSHelp/internal/profile"
+	"github.com/DDLarcher/SSHelp/internal/sshconn"
 )
 
 type state int
@@ -97,7 +100,7 @@ var (
 	actions = []string{"[C] Connect", "[E] Edit", "[D] Delete", "[V] Details"}
 
 	stepLabels = []string{
-		"Profile Name",
+		"profile.Profile Name",
 		"Collection (optional)",
 		"Username",
 		"Host",
@@ -109,7 +112,7 @@ var (
 
 type model struct {
 	state         state
-	profiles      []Profile
+	profiles      []profile.Profile
 	cursor        int
 	width, height int
 	err, msg      string
@@ -121,17 +124,22 @@ type model struct {
 
 	addStep    int
 	addInput   textinput.Model
-	addProfile Profile
+	addProfile profile.Profile
 
 	editField   int
 	editInput   textinput.Model
-	editProfile Profile
+	editProfile profile.Profile
 	editIndex   int
 
 	confirmMsg    string
 	confirmDelete bool
 
-	detailProfile Profile
+	detailProfile profile.Profile
+}
+
+// New returns the TUI, starting at the unlock screen.
+func New() tea.Model {
+	return initialModel()
 }
 
 func initialModel() model {
@@ -145,7 +153,7 @@ func initialModel() model {
 
 	return model{
 		state:       stateUnlock,
-		isFirstRun:  !profilesFileExists(),
+		isFirstRun:  !profile.StoreExists(),
 		unlockInput: ti,
 	}
 }
@@ -186,9 +194,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleClick(msg)
 		}
 
-	case sshFinishedMsg:
-		if msg.err != nil {
-			m.err = "Connection error: " + msg.err.Error()
+	case sshconn.FinishedMsg:
+		if msg.Err != nil {
+			m.err = "Connection error: " + msg.Err.Error()
 			m.msg = ""
 		}
 		return m, nil
@@ -209,8 +217,8 @@ func (m model) handleUnlockKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.isFirstRun {
 			m.password = password
-			m.profiles = []Profile{}
-			SaveProfiles(m.profiles, m.password)
+			m.profiles = []profile.Profile{}
+			profile.Save(m.profiles, m.password)
 			m.state = stateList
 			m.msg = "Master password set"
 			m.addInput = textinput.New()
@@ -218,9 +226,9 @@ func (m model) handleUnlockKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.addInput.Prompt = "> "
 			return m, textinput.Blink
 		}
-		profiles, err := LoadProfiles(password)
+		profiles, err := profile.Load(password)
 		if err != nil {
-			if _, ok := err.(*ProfileError); ok {
+			if _, ok := err.(*profile.Error); ok {
 				m.password = password
 				m.profiles = profiles
 				m.msg = err.Error()
@@ -270,7 +278,7 @@ func (m model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "a":
 		m.state = stateAdd
 		m.addStep = 0
-		m.addProfile = Profile{}
+		m.addProfile = profile.Profile{}
 		m.addInput = textinput.New()
 		m.addInput.Focus()
 		m.addInput.Width = 40
@@ -289,10 +297,10 @@ func (m model) handleActionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		p := m.profiles[m.cursor]
 		p = p.UpdatedNow()
 		m.profiles[m.cursor] = p
-		SaveProfiles(m.profiles, m.password)
+		profile.Save(m.profiles, m.password)
 		m.msg = "Connecting to " + p.Name + "..."
 		m.state = stateList
-		return m, connectSSHCmd(p)
+		return m, sshconn.Connect(p)
 	case "e":
 		m.state = stateEdit
 		m.editField = 0
@@ -342,7 +350,7 @@ func (m model) handleAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.err = "Name cannot be empty"
 					return m, nil
 				}
-				if !isValidInput(val) {
+				if !profile.IsValidInput(val) {
 					m.err = charErr
 					return m, nil
 				}
@@ -351,7 +359,7 @@ func (m model) handleAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.addInput.SetValue("")
 				m.addInput.Placeholder = "e.g. production (empty = ungrouped)"
 			case fieldGroup:
-				if val != "" && !isValidInput(val) {
+				if val != "" && !profile.IsValidInput(val) {
 					m.err = charErr
 					return m, nil
 				}
@@ -364,7 +372,7 @@ func (m model) handleAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.err = "User cannot be empty"
 					return m, nil
 				}
-				if !isValidInput(val) {
+				if !profile.IsValidInput(val) {
 					m.err = charErr
 					return m, nil
 				}
@@ -377,7 +385,7 @@ func (m model) handleAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.err = "Host cannot be empty"
 					return m, nil
 				}
-				if !isValidInput(val) {
+				if !profile.IsValidInput(val) {
 					m.err = charErr
 					return m, nil
 				}
@@ -399,7 +407,7 @@ func (m model) handleAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.addInput.SetValue("")
 				m.addInput.Placeholder = "leave empty if not needed"
 			case fieldKeyPath:
-				if val != "" && !isValidInput(val) {
+				if val != "" && !profile.IsValidInput(val) {
 					m.err = charErr
 					return m, nil
 				}
@@ -409,9 +417,9 @@ func (m model) handleAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.addInput.Placeholder = "leave empty to be asked on connect"
 				m.addInput.EchoMode = textinput.EchoPassword
 				m.addInput.EchoCharacter = '*'
-				m.addInput.CharLimit = maxPasswordLen
+				m.addInput.CharLimit = profile.MaxPasswordLen
 			case fieldPassword:
-				if !isValidPassword(val) {
+				if !profile.IsValidPassword(val) {
 					m.err = pwErr
 					return m, nil
 				}
@@ -430,25 +438,25 @@ func (m model) handleAddKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	switch msg.String() {
 	case "enter":
-		if err := ValidateProfile(m.addProfile); err != nil {
+		if err := profile.Validate(m.addProfile); err != nil {
 			m.err = err.Error()
 			return m, nil
 		}
-		if nameTaken(m.profiles, m.addProfile, -1) {
+		if profile.NameTaken(m.profiles, m.addProfile, -1) {
 			m.err = "A profile with this name already exists in " + m.addProfile.GroupLabel()
 			return m, nil
 		}
-		pinned, err := pinHostKeys(m.addProfile)
+		pinned, err := sshconn.PinHostKeys(m.addProfile)
 		if err != nil {
 			m.err = err.Error()
 			return m, nil
 		}
 		m.addProfile = pinned
 		m.profiles = append(m.profiles, m.addProfile)
-		sortProfiles(m.profiles)
-		SaveProfiles(m.profiles, m.password)
+		profile.Sort(m.profiles)
+		profile.Save(m.profiles, m.password)
 		m.cursor = indexOf(m.profiles, m.addProfile)
-		m.msg = "Profile \"" + m.addProfile.Name + "\" added"
+		m.msg = "profile.Profile \"" + m.addProfile.Name + "\" added"
 		m.state = stateList
 	case "esc":
 		m.state = stateList
@@ -491,30 +499,30 @@ func (m model) handleEditKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case fieldPassword:
 			m.editInput.EchoMode = textinput.EchoPassword
 			m.editInput.EchoCharacter = '*'
-			m.editInput.CharLimit = maxPasswordLen
+			m.editInput.CharLimit = profile.MaxPasswordLen
 			m.editInput.SetValue(m.editProfile.Password)
 		}
 		return m, textinput.Blink
 	case "ctrl+s":
-		if err := ValidateProfile(m.editProfile); err != nil {
+		if err := profile.Validate(m.editProfile); err != nil {
 			m.err = err.Error()
 			return m, nil
 		}
-		if nameTaken(m.profiles, m.editProfile, m.editIndex) {
+		if profile.NameTaken(m.profiles, m.editProfile, m.editIndex) {
 			m.err = "A profile with this name already exists in " + m.editProfile.GroupLabel()
 			return m, nil
 		}
-		pinned, err := pinHostKeys(m.editProfile)
+		pinned, err := sshconn.PinHostKeys(m.editProfile)
 		if err != nil {
 			m.err = err.Error()
 			return m, nil
 		}
 		m.editProfile = pinned
 		m.profiles[m.editIndex] = m.editProfile
-		sortProfiles(m.profiles)
+		profile.Sort(m.profiles)
 		m.cursor = indexOf(m.profiles, m.editProfile)
-		SaveProfiles(m.profiles, m.password)
-		m.msg = "Profile \"" + m.editProfile.Name + "\" updated"
+		profile.Save(m.profiles, m.password)
+		m.msg = "profile.Profile \"" + m.editProfile.Name + "\" updated"
 		m.err = ""
 		m.state = stateList
 	}
@@ -535,13 +543,13 @@ func (m model) handleEditFieldKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.err = "Name cannot be empty"
 				return m, nil
 			}
-			if !isValidInput(val) {
+			if !profile.IsValidInput(val) {
 				m.err = charErr
 				return m, nil
 			}
 			m.editProfile.Name = val
 		case fieldGroup:
-			if val != "" && !isValidInput(val) {
+			if val != "" && !profile.IsValidInput(val) {
 				m.err = charErr
 				return m, nil
 			}
@@ -551,7 +559,7 @@ func (m model) handleEditFieldKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.err = "User cannot be empty"
 				return m, nil
 			}
-			if !isValidInput(val) {
+			if !profile.IsValidInput(val) {
 				m.err = charErr
 				return m, nil
 			}
@@ -561,7 +569,7 @@ func (m model) handleEditFieldKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.err = "Host cannot be empty"
 				return m, nil
 			}
-			if !isValidInput(val) {
+			if !profile.IsValidInput(val) {
 				m.err = charErr
 				return m, nil
 			}
@@ -577,13 +585,13 @@ func (m model) handleEditFieldKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.editProfile.Port = port
 		case fieldKeyPath:
-			if val != "" && !isValidInput(val) {
+			if val != "" && !profile.IsValidInput(val) {
 				m.err = charErr
 				return m, nil
 			}
 			m.editProfile.KeyPath = val
 		case fieldPassword:
-			if !isValidPassword(val) {
+			if !profile.IsValidPassword(val) {
 				m.err = pwErr
 				return m, nil
 			}
@@ -607,8 +615,8 @@ func (m model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.cursor >= len(m.profiles) && m.cursor > 0 {
 				m.cursor--
 			}
-			SaveProfiles(m.profiles, m.password)
-			m.msg = "Profile deleted"
+			profile.Save(m.profiles, m.password)
+			m.msg = "profile.Profile deleted"
 		}
 		m.state = stateList
 	case "n", "N", "esc":
@@ -719,7 +727,7 @@ func (m model) listView() string {
 			maxW = 50
 		}
 
-		grouped := hasGroups(m.profiles)
+		grouped := profile.HasGroups(m.profiles)
 
 		for i, p := range m.profiles {
 			if grouped && (i == 0 || p.Group != m.profiles[i-1].Group) {
@@ -774,7 +782,7 @@ func (m model) listView() string {
 
 // Header line of the collection a profile opens, with the number of profiles
 // in it.
-func groupHeader(p Profile, profiles []Profile) string {
+func groupHeader(p profile.Profile, profiles []profile.Profile) string {
 	n := 0
 	for _, other := range profiles {
 		if other.Group == p.Group {
@@ -792,7 +800,7 @@ func groupHeader(p Profile, profiles []Profile) string {
 // clicks are mapped to the profile actually drawn there.
 func (m model) profileRows() []int {
 	rows := make([]int, len(m.profiles))
-	grouped := hasGroups(m.profiles)
+	grouped := profile.HasGroups(m.profiles)
 	y := listTop
 
 	for i, p := range m.profiles {
@@ -813,7 +821,7 @@ func (m model) profileRows() []int {
 
 // Position of a profile once the list has been re-sorted; name and collection
 // identify it uniquely.
-func indexOf(profiles []Profile, p Profile) int {
+func indexOf(profiles []profile.Profile, p profile.Profile) int {
 	for i, other := range profiles {
 		if other.Name == p.Name && other.Group == p.Group {
 			return i
@@ -827,7 +835,7 @@ func (m model) addView() string {
 	b.Grow(512)
 
 	b.WriteString(m.bannerView())
-	b.WriteString(headingStyle.Render("Add Profile"))
+	b.WriteString(headingStyle.Render("Add profile.Profile"))
 	b.WriteString("\n\n")
 
 	maxW := m.width - 8
@@ -877,7 +885,7 @@ func (m model) editView() string {
 	b.Grow(512)
 
 	b.WriteString(m.bannerView())
-	b.WriteString(headingStyle.Render("Edit Profile"))
+	b.WriteString(headingStyle.Render("Edit profile.Profile"))
 	b.WriteString("\n\n")
 
 	pwField := ""
@@ -944,7 +952,7 @@ func (m model) editView() string {
 	return b.String()
 }
 
-func groupSummary(p Profile) string {
+func groupSummary(p profile.Profile) string {
 	if p.Group == "" {
 		return dimStyle.Render("(none)")
 	}
@@ -952,7 +960,7 @@ func groupSummary(p Profile) string {
 }
 
 // Never reveals the password itself, only whether one is stored.
-func passwordSummary(p Profile) string {
+func passwordSummary(p profile.Profile) string {
 	if p.Password == "" {
 		return dimStyle.Render("(none)")
 	}
@@ -987,7 +995,7 @@ func (m model) detailsView() string {
 
 	p := m.detailProfile
 	b.WriteString(m.bannerView())
-	b.WriteString(headingStyle.Render("Profile Details"))
+	b.WriteString(headingStyle.Render("profile.Profile Details"))
 	b.WriteString("\n\n")
 
 	maxW := m.width - 8
@@ -1015,7 +1023,7 @@ func (m model) detailsView() string {
 	content += "  " + fieldLabel.Render("Key:") + "  " + keyVal + "\n"
 	content += "  " + fieldLabel.Render("Password:") + "  " + passwordSummary(p) + "\n"
 	if p.Password != "" {
-		fps := hostKeyFingerprints(p)
+		fps := sshconn.HostKeyFingerprints(p)
 		if len(fps) == 0 {
 			content += "  " + fieldLabel.Render("Host key:") + "  " + errStyle.Render("(not pinned)") + "\n"
 		}

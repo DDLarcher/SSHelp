@@ -1,37 +1,15 @@
-package main
+package sshconn
 
 import (
 	"fmt"
 	"os"
 	"strings"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
-
-func main() {
-	// OpenSSH runs SSH_ASKPASS with the prompt as its only argument. Requiring
-	// that argument means a bare launch always starts the TUI, so a stray
-	// SSHELP_ASKPASS_FILE in the environment cannot silently turn the binary
-	// into a helper.
-	if cred := os.Getenv(askpassFileEnv); cred != "" && len(os.Args) == 2 {
-		os.Exit(askpass(cred, os.Args[1]))
-	}
-
-	sweepCredentials()
-
-	m := initialModel()
-	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
-
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-}
 
 // Answers the first password prompt of a connection and nothing else. The
 // credential file is consumed as it is read, so anything asked afterwards - a
 // server following the password with a 2FA prompt, say - gets no answer.
-func askpass(credPath, prompt string) int {
+func Askpass(credPath, prompt string) int {
 	if !isPasswordPrompt(prompt) {
 		return 1
 	}

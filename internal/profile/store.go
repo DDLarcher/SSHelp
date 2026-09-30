@@ -1,4 +1,4 @@
-package main
+package profile
 
 import (
 	"bytes"
@@ -19,7 +19,7 @@ const (
 	saltLen  = 16
 	nonceLen = 12
 	keyIter  = 100000 // legacy PBKDF2 files only
-	fileMode = 0o600
+	FileMode = 0o600
 )
 
 // v2 files carry this prefix. A file without it was written by an older version
@@ -74,22 +74,22 @@ func encryptProfiles(profiles []Profile, password string) error {
 	out = append(out, nonce...)
 	out = append(out, aesgcm.Seal(nil, nonce, data, nil)...)
 
-	return writeFilePrivate(profilesWritePath(), out)
+	return WriteFilePrivate(profilesWritePath(), out)
 }
 
 // Writes through a temporary file so that a crash mid-write cannot leave an
 // unreadable store behind, and keeps the result readable by its owner only.
-func writeFilePrivate(path string, data []byte) error {
+func WriteFilePrivate(path string, data []byte) error {
 	if dir := filepath.Dir(path); dir != "" {
 		os.MkdirAll(dir, 0o700)
 	}
 
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, fileMode); err != nil {
+	if err := os.WriteFile(tmp, data, FileMode); err != nil {
 		return err
 	}
 	// WriteFile only applies the mode when creating the file.
-	if err := os.Chmod(tmp, fileMode); err != nil {
+	if err := os.Chmod(tmp, FileMode); err != nil {
 		os.Remove(tmp)
 		return err
 	}
@@ -97,7 +97,7 @@ func writeFilePrivate(path string, data []byte) error {
 		os.Remove(tmp)
 		return err
 	}
-	return os.Chmod(path, fileMode)
+	return os.Chmod(path, FileMode)
 }
 
 func decryptProfiles(password string) ([]Profile, bool, error) {
@@ -111,7 +111,7 @@ func decryptProfiles(password string) ([]Profile, bool, error) {
 		raw = raw[len(magicV2):]
 	}
 	if len(raw) < saltLen+nonceLen {
-		return nil, legacy, &ProfileError{"profile store is truncated"}
+		return nil, legacy, &Error{"profile store is truncated"}
 	}
 
 	salt, nonce, encrypted := raw[:saltLen], raw[saltLen:saltLen+nonceLen], raw[saltLen+nonceLen:]
@@ -146,12 +146,12 @@ func decryptProfiles(password string) ([]Profile, bool, error) {
 	return profiles, legacy, nil
 }
 
-func profilesFileExists() bool {
+func StoreExists() bool {
 	_, err := os.Stat(profilesReadPath())
 	return err == nil
 }
 
-func LoadProfiles(password string) ([]Profile, error) {
+func Load(password string) ([]Profile, error) {
 	profiles, legacy, err := decryptProfiles(password)
 	if err != nil {
 		return nil, err
@@ -169,17 +169,17 @@ func LoadProfiles(password string) ([]Profile, error) {
 		} else {
 			warnings = append(warnings, "Profile store upgraded to Argon2id at "+profilesWritePath())
 			if old := legacyProfilesPath(); old != "" && old != profilesWritePath() {
-				os.Chmod(old, fileMode)
+				os.Chmod(old, FileMode)
 				warnings = append(warnings, "the old copy at "+old+" can be deleted")
 			}
 		}
 	}
 	if len(warnings) > 0 {
-		return valid, &ProfileError{joinWarnings(warnings)}
+		return valid, &Error{joinWarnings(warnings)}
 	}
 	return valid, nil
 }
 
-func SaveProfiles(profiles []Profile, password string) error {
+func Save(profiles []Profile, password string) error {
 	return encryptProfiles(profiles, password)
 }

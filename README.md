@@ -69,7 +69,7 @@ the password is simply not auto-filled and `ssh` prompts as usual.
 
 ## Requirements
 
-- Go 1.21+
+- Go 1.25+
 - SSH client installed on the system, `ssh-keygen` included (OpenSSH 8.4+ for saved-password auto-fill)
 - Windows or Linux/macOS
 
@@ -78,9 +78,19 @@ the password is simply not auto-filled and `ssh` prompts as usual.
 ```bash
 git clone https://github.com/DDLarcher/SSHelp.git
 cd SSHelp
-go mod tidy
-go build -ldflags="-s -w" -trimpath -o SSHelp .    # Linux/macOS
-go build -ldflags="-s -w" -trimpath -o SSHelp.exe . # Windows
+go build -ldflags="-s -w" -trimpath -o SSHelp ./cmd/sshelp      # Linux/macOS
+go build -ldflags="-s -w" -trimpath -o SSHelp.exe ./cmd/sshelp  # Windows
+```
+
+Run the tests with `go test ./...`.
+
+## Project layout
+
+```
+cmd/sshelp/         entry point: starts the TUI, or acts as the SSH_ASKPASS helper
+internal/profile/   Profile type, validation and the encrypted profile store
+internal/sshconn/   launching ssh, host key pinning and the askpass helper
+internal/tui/       Bubbletea interface
 ```
 
 ## Usage

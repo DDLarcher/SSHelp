@@ -1,4 +1,4 @@
-package main
+package profile
 
 import (
 	"os"
@@ -23,18 +23,18 @@ type Profile struct {
 	LastAccess string   `json:"last_access,omitempty"`
 }
 
-const maxPasswordLen = 256
+const MaxPasswordLen = 256
 
 var validInputRE = regexp.MustCompile(`^[a-zA-Z0-9._@:-]+$`)
 
-func isValidInput(s string) bool {
+func IsValidInput(s string) bool {
 	return s != "" && validInputRE.MatchString(s)
 }
 
 // Passwords are handed to ssh through the environment, never through a shell,
 // so any printable character is fine; control characters are not.
-func isValidPassword(s string) bool {
-	if utf8.RuneCountInString(s) > maxPasswordLen {
+func IsValidPassword(s string) bool {
+	if utf8.RuneCountInString(s) > MaxPasswordLen {
 		return false
 	}
 	for _, r := range s {
@@ -46,7 +46,7 @@ func isValidPassword(s string) bool {
 }
 
 // A pinned known_hosts entry, as produced by ssh-keygen -F.
-func isValidHostKey(s string) bool {
+func IsValidHostKey(s string) bool {
 	if s == "" || len(s) > 2048 {
 		return false
 	}
@@ -58,35 +58,35 @@ func isValidHostKey(s string) bool {
 	return true
 }
 
-type ProfileError struct{ msg string }
+type Error struct{ Msg string }
 
-func (e *ProfileError) Error() string { return e.msg }
+func (e *Error) Error() string { return e.Msg }
 
-func ValidateProfile(p Profile) error {
-	if !isValidInput(p.Name) {
-		return &ProfileError{"invalid profile name"}
+func Validate(p Profile) error {
+	if !IsValidInput(p.Name) {
+		return &Error{"invalid profile name"}
 	}
-	if !isValidInput(p.User) {
-		return &ProfileError{"invalid username"}
+	if !IsValidInput(p.User) {
+		return &Error{"invalid username"}
 	}
-	if !isValidInput(p.Host) {
-		return &ProfileError{"invalid hostname"}
+	if !IsValidInput(p.Host) {
+		return &Error{"invalid hostname"}
 	}
 	if p.Port < 1 || p.Port > 65535 {
-		return &ProfileError{"invalid port (1-65535)"}
+		return &Error{"invalid port (1-65535)"}
 	}
-	if p.Group != "" && !isValidInput(p.Group) {
-		return &ProfileError{"invalid collection name"}
+	if p.Group != "" && !IsValidInput(p.Group) {
+		return &Error{"invalid collection name"}
 	}
-	if p.KeyPath != "" && !isValidInput(p.KeyPath) {
-		return &ProfileError{"invalid key path characters"}
+	if p.KeyPath != "" && !IsValidInput(p.KeyPath) {
+		return &Error{"invalid key path characters"}
 	}
-	if !isValidPassword(p.Password) {
-		return &ProfileError{"invalid password (max 256 printable characters)"}
+	if !IsValidPassword(p.Password) {
+		return &Error{"invalid password (max 256 printable characters)"}
 	}
 	for _, k := range p.HostKeys {
-		if !isValidHostKey(k) {
-			return &ProfileError{"invalid pinned host key"}
+		if !IsValidHostKey(k) {
+			return &Error{"invalid pinned host key"}
 		}
 	}
 	return nil
@@ -95,25 +95,11 @@ func ValidateProfile(p Profile) error {
 func filterValid(profiles []Profile) ([]Profile, int) {
 	out := make([]Profile, 0, len(profiles))
 	for _, p := range profiles {
-		if ValidateProfile(p) == nil {
+		if Validate(p) == nil {
 			out = append(out, p)
 		}
 	}
 	return out, len(profiles) - len(out)
-}
-
-func sanitizeForShell(s string) string {
-	b := make([]byte, 0, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch c {
-		case '"', '&', '|', ';', '!', '%', '^', '`', '\n', '\r':
-			continue
-		default:
-			b = append(b, c)
-		}
-	}
-	return string(b)
 }
 
 // Where older versions kept the store: next to the executable, which exposes
@@ -164,7 +150,7 @@ func joinWarnings(warnings []string) string {
 
 // Directory for the per-profile pinned known_hosts files and the one-shot
 // credential files, created private to the user.
-func stateDir() (string, error) {
+func StateDir() (string, error) {
 	base, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
@@ -193,9 +179,9 @@ func (p Profile) UpdatedNow() Profile {
 }
 
 // Collections come first in alphabetical order, ungrouped profiles last; within
-// a collection profiles are sorted by name. listView relies on profiles of the
+// a collection profiles are sorted by name. the list view relies on profiles of the
 // same collection being contiguous.
-func sortProfiles(profiles []Profile) {
+func Sort(profiles []Profile) {
 	sort.Slice(profiles, func(i, j int) bool {
 		a, b := profiles[i], profiles[j]
 		if a.Group != b.Group {
@@ -211,7 +197,7 @@ func sortProfiles(profiles []Profile) {
 // Profile names must be unique within their collection, so the same name may be
 // reused across collections. skip is the index of the profile being edited, or
 // -1 when adding a new one.
-func nameTaken(profiles []Profile, p Profile, skip int) bool {
+func NameTaken(profiles []Profile, p Profile, skip int) bool {
 	for i, other := range profiles {
 		if i != skip && other.Name == p.Name && other.Group == p.Group {
 			return true
@@ -228,7 +214,7 @@ func (p Profile) GroupLabel() string {
 	return p.Group
 }
 
-func hasGroups(profiles []Profile) bool {
+func HasGroups(profiles []Profile) bool {
 	for _, p := range profiles {
 		if p.Group != "" {
 			return true

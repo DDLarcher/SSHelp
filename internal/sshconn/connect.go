@@ -1,4 +1,4 @@
-package main
+package sshconn
 
 import (
 	"os"
@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/DDLarcher/SSHelp/internal/profile"
 )
 
 const (
@@ -13,13 +15,13 @@ const (
 	// itself: the environment of an ssh process is readable through
 	// /proc/<pid>/environ by anything running as the same user, and is
 	// inherited by every helper ssh spawns.
-	askpassFileEnv = "SSHELP_ASKPASS_FILE"
+	AskpassFileEnv = "SSHELP_ASKPASS_FILE"
 
 	credPrefix   = "cred-"
 	credLifetime = 2 * time.Minute
 )
 
-type sshFinishedMsg struct{ err error }
+type FinishedMsg struct{ Err error }
 
 // Everything needed to launch one ssh session, plus the cleanup that removes
 // the credential file once the session is over.
@@ -29,7 +31,7 @@ type connSetup struct {
 	cleanup func()
 }
 
-func sshTarget(p Profile) []string {
+func sshTarget(p profile.Profile) []string {
 	var args []string
 	if p.Port > 0 && p.Port != 22 {
 		args = append(args, "-p", strconv.Itoa(p.Port))
@@ -37,7 +39,7 @@ func sshTarget(p Profile) []string {
 	return append(args, p.User+"@"+p.Host)
 }
 
-func sshArgs(p Profile, knownHosts string) []string {
+func sshArgs(p profile.Profile, knownHosts string) []string {
 	var args []string
 	if p.Port > 0 && p.Port != 22 {
 		args = append(args, "-p", strconv.Itoa(p.Port))
@@ -58,7 +60,7 @@ func sshArgs(p Profile, knownHosts string) []string {
 	return append(args, p.User+"@"+p.Host)
 }
 
-func prepareConnection(p Profile) (connSetup, error) {
+func prepareConnection(p profile.Profile) (connSetup, error) {
 	s := connSetup{cleanup: func() {}}
 
 	knownHosts := ""
@@ -87,7 +89,7 @@ func prepareConnection(p Profile) (connSetup, error) {
 	}
 
 	s.env = append(os.Environ(),
-		askpassFileEnv+"="+cred,
+		AskpassFileEnv+"="+cred,
 		"SSH_ASKPASS="+exe,
 		"SSH_ASKPASS_REQUIRE=force",
 	)
@@ -107,11 +109,11 @@ func prepareConnection(p Profile) (connSetup, error) {
 // command line nor in any process environment, and it can be collected only
 // once per connection.
 func writeCredential(password string) (string, error) {
-	dir, err := stateDir()
+	dir, err := profile.StateDir()
 	if err != nil {
 		return "", err
 	}
-	sweepCredentials()
+	SweepCredentials()
 
 	f, err := os.CreateTemp(dir, credPrefix+"*")
 	if err != nil {
@@ -119,7 +121,7 @@ func writeCredential(password string) (string, error) {
 	}
 	defer f.Close()
 
-	if err := f.Chmod(fileMode); err != nil {
+	if err := f.Chmod(profile.FileMode); err != nil {
 		os.Remove(f.Name())
 		return "", err
 	}

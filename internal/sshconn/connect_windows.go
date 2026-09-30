@@ -1,19 +1,21 @@
 //go:build windows
 
-package main
+package sshconn
 
 import (
 	"os/exec"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/DDLarcher/SSHelp/internal/profile"
 )
 
 // Opens the SSH session in a new console window via `cmd /c start`.
-func connectSSHCmd(p Profile) tea.Cmd {
+func Connect(p profile.Profile) tea.Cmd {
 	return func() tea.Msg {
 		setup, err := prepareConnection(p)
 		if err != nil {
-			return sshFinishedMsg{err}
+			return FinishedMsg{err}
 		}
 
 		safeName := sanitizeForShell(p.Name)
@@ -25,10 +27,25 @@ func connectSSHCmd(p Profile) tea.Cmd {
 		c.Env = setup.env
 		if err := c.Start(); err != nil {
 			setup.cleanup()
-			return sshFinishedMsg{err}
+			return FinishedMsg{err}
 		}
 		// The session outlives this call in its own console window, so the
 		// credential file is left to the helper and to its expiry timer.
-		return sshFinishedMsg{nil}
+		return FinishedMsg{nil}
 	}
+}
+
+// Strips the characters cmd.exe treats specially from the window title.
+func sanitizeForShell(s string) string {
+	b := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch c {
+		case '"', '&', '|', ';', '!', '%', '^', '`', '\n', '\r':
+			continue
+		default:
+			b = append(b, c)
+		}
+	}
+	return string(b)
 }

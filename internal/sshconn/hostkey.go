@@ -1,4 +1,4 @@
-package main
+package sshconn
 
 import (
 	"crypto/sha256"
@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/DDLarcher/SSHelp/internal/profile"
 )
 
 // Name a host is filed under in known_hosts: bare for port 22, [host]:port
@@ -22,7 +24,7 @@ func knownHostsName(host string, port int) string {
 
 // Hostname and port ssh will actually connect to once ~/.ssh/config has been
 // applied, so that a host alias is looked up under the name known_hosts uses.
-func resolvedTarget(p Profile) (string, int) {
+func resolvedTarget(p profile.Profile) (string, int) {
 	host, port := p.Host, p.Port
 	out, err := exec.Command("ssh", append([]string{"-G"}, sshTarget(p)...)...).Output()
 	if err != nil {
@@ -48,7 +50,7 @@ func resolvedTarget(p Profile) (string, int) {
 // known_hosts entries the user has already accepted for this host. Empty when
 // the host has never been connected to, which is what stops a password from
 // being saved for a host whose identity nobody has verified yet.
-func importHostKeys(p Profile) []string {
+func importHostKeys(p profile.Profile) []string {
 	host, port := resolvedTarget(p)
 	out, err := exec.Command("ssh-keygen", "-F", knownHostsName(host, port)).Output()
 	if err != nil {
@@ -58,7 +60,7 @@ func importHostKeys(p Profile) []string {
 	var keys []string
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") || !isValidHostKey(line) {
+		if line == "" || strings.HasPrefix(line, "#") || !profile.IsValidHostKey(line) {
 			continue
 		}
 		keys = append(keys, line)
@@ -69,13 +71,13 @@ func importHostKeys(p Profile) []string {
 // Writes the pinned entries to a private known_hosts of our own, so the profile
 // is bound to the key that was verified when the password was saved rather than
 // to whatever ~/.ssh/known_hosts happens to hold at connect time.
-func writePinnedKnownHosts(p Profile) (string, error) {
-	dir, err := stateDir()
+func writePinnedKnownHosts(p profile.Profile) (string, error) {
+	dir, err := profile.StateDir()
 	if err != nil {
 		return "", err
 	}
 	path := filepath.Join(dir, "known_hosts-"+fileSafe(p.GroupLabel()+"-"+p.Name))
-	if err := writeFilePrivate(path, []byte(strings.Join(p.HostKeys, "\n")+"\n")); err != nil {
+	if err := profile.WriteFilePrivate(path, []byte(strings.Join(p.HostKeys, "\n")+"\n")); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -88,7 +90,7 @@ func fileSafe(s string) string {
 
 // SHA256 fingerprints of the pinned keys, in the format ssh itself prints, so
 // the user can compare them with what the server reports.
-func hostKeyFingerprints(p Profile) []string {
+func HostKeyFingerprints(p profile.Profile) []string {
 	var out []string
 	for _, entry := range p.HostKeys {
 		parts := strings.Fields(entry)
@@ -108,8 +110,8 @@ func hostKeyFingerprints(p Profile) []string {
 // Removes credential files left behind by a connection that was never asked for
 // a password (public key auth succeeded, host unreachable) and whose process is
 // long gone.
-func sweepCredentials() {
-	dir, err := stateDir()
+func SweepCredentials() {
+	dir, err := profile.StateDir()
 	if err != nil {
 		return
 	}
@@ -132,7 +134,7 @@ func sweepCredentials() {
 // A password may only be stored for a host whose key the user has already
 // verified. The matching known_hosts entries are copied into the profile, so
 // the password is later offered only to a host that proves it holds that key.
-func pinHostKeys(p Profile) (Profile, error) {
+func PinHostKeys(p profile.Profile) (profile.Profile, error) {
 	if p.Password == "" {
 		p.HostKeys = nil
 		return p, nil
@@ -140,7 +142,7 @@ func pinHostKeys(p Profile) (Profile, error) {
 
 	keys := importHostKeys(p)
 	if len(keys) == 0 {
-		return p, &ProfileError{"unknown host key for " + p.Host + ": connect once without a saved password, check the fingerprint, then save the password"}
+		return p, &profile.Error{Msg: "unknown host key for " + p.Host + ": connect once without a saved password, check the fingerprint, then save the password"}
 	}
 
 	p.HostKeys = keys

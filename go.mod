@@ -1,4 +1,4 @@
-module ssh-profile-manager
+module github.com/DDLarcher/SSHelp
 
 go 1.25.0
 
